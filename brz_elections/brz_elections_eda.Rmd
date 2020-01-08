@@ -1,0 +1,184 @@
+---
+title: "Análise das Eleições de 2018 no Brasil"
+output: html_notebook
+---
+
+### 3. **EDA**
+
+```{r}
+# analise basica dos frames extraidos
+receita <-  read.table(unz('./raw_data/receita_br.zip', 'receita_cand_BRASIL_2018.csv'), 
+                       header=T, 
+                       sep=",", 
+                       colClasses = c(X="NULL")) %>% 
+            filter(SG_UE != 'BR')
+
+despesa <-  read.table(unz('./raw_data/despesa_paga_br.zip','despesa_pagas_cand_BRASIL_2018.csv'),
+                       header=T, 
+                       sep=",", 
+                       colClasses = c(X="NULL"))
+
+despesa_contratada <-  read.table(unz('./raw_data/despesa_contratada_br.zip','despesa_contratada_cand_BRASIL_2018.csv'),
+                       header=T, 
+                       sep=",", 
+                       colClasses = c(X="NULL")) %>% 
+                filter(SG_UE != 'BR')
+
+bens   <- readRDS('./raw_data/bens_cand_2018.rds')
+status <- readRDS('./raw_data/status_cand_2018.rds')
+
+```
+
+
+
+```{r}
+# grafico das despesas
+despesa %>% group_by(DS_DESPESA) %>% 
+            summarise(TOTAL = sum(VR_PAGTO_DESPESA)) %>%  # AGRUPAR DESPESAS PELA DESCRICAO E SOMAR TOTAIS 
+            arrange(desc(TOTAL)) %>%                      # ORGANIZAR EM ORDEM DECRESCENTE
+            head(10) %>%                                  # TRAZER OS PRIMEIROS 10 RESULTADOS
+            ggplot(aes(x=reorder(DS_DESPESA, --TOTAL), 
+                       y=TOTAL / (10**6))) +              # CRIAR UM PLOT REOGARNIZANDO O EIXO X E DIVIDINDO O Y
+            geom_bar(stat = 'identity', 
+                     fill = 'steelblue') +                # CUSTOMIZA GRAFICO DE BARRA E COR
+            theme_minimal() +                             # APLICA TEMA MINIMO, COM FUNDO BRANCO
+            coord_flip() +                                # TRANSFORMA O GRAFICO DE HORIZONTAL PARA VERTIICAL
+            ggtitle('Principais gastos dos candidatos na Eleição de 2018 - Top 10') +
+            theme(plot.title = element_text(hjust = 1.7)) +
+            labs(x='Destino da despesa', y='Gastos em milhões de R$')
+```
+
+```{r}
+# grafico das despesas contratadas
+despesa_contratada %>% group_by(DS_ORIGEM_DESPESA) %>% 
+                summarise(TOTAL = sum(VR_DESPESA_CONTRATADA)) %>%  # AGRUPAR DESPESAS PELA DESCRICAO E SOMAR TOTAIS 
+                arrange(desc(TOTAL)) %>%                           # ORGANIZAR EM ORDEM DECRESCENTE
+                head(10) %>%                                       # TRAZER OS PRIMEIROS 10 RESULTADOS
+                ggplot(aes(x=reorder(DS_ORIGEM_DESPESA, --TOTAL), 
+                           y=TOTAL / (10**6))) +                   # CRIAR UM PLOT REOGARNIZANDO O EIXO X E DIVIDINDO O Y
+                geom_bar(stat = 'identity', 
+                         fill = 'darkred') +                       # CUSTOMIZA GRAFICO DE BARRA E COR
+                theme_minimal() +                                  # APLICA TEMA MINIMO, COM FUNDO BRANCO
+                coord_flip() +                                     # TRANSFORMA O GRAFICO DE HORIZONTAL PARA VERTIICAL
+                ggtitle('Principais gastos contratados na Eleição de 2018 - Top 10') +
+                theme(plot.title = element_text(hjust = 1.7)) +
+                labs(x='Destino da despesa', y='Contratos em milhões de R$')
+```
+
+
+```{r}
+receita %>% group_by(DS_ORIGEM_RECEITA) %>% 
+            summarise(TOTAL = sum(VR_RECEITA)) %>% 
+            arrange(desc(TOTAL)) %>% 
+            head(5) %>% 
+            ggplot(aes(x=reorder(DS_ORIGEM_RECEITA, --TOTAL), 
+                       y=TOTAL / 10 ** 6)) +
+            geom_bar(stat = 'identity', fill ='darkgreen') +
+            coord_flip() +
+            theme_minimal() +
+            ggtitle('Principais fontes de receita na Eleição de 2018 - Top 5') +
+            theme(plot.title = element_text(hjust = -2)) +
+            labs(x='Origem da receita', y='Arrecadação em milhões de R$')
+  
+```
+
+```{r}
+# VALIDACAO DOS TOTAIS
+tot_desp_cont <- sum(despesa_contratada$VR_DESPESA_CONTRATADA)
+tot_desp      <- sum(despesa$VR_PAGTO_DESPESA) 
+tot_receita   <- sum(receita$VR_RECEITA)
+
+aux <- data.frame(X = c('TOTAL_CONTRATADO', 'TOTAL_PAGO', 'TOTAL_ARRECADADO'),
+                  Y = c(tot_desp_cont, tot_desp, tot_receita))
+                  
+aux %>% ggplot(aes(x=X, y=Y / 10 ** 6, fill=X)) +
+        geom_bar(stat = 'identity') +
+        theme_minimal() +
+        labs(x='', y='R$') +
+        coord_cartesian(ylim=c(2000,3250)) +
+        ggtitle('Evolução entre o dinheiro arrecadado e gasto') +
+        theme(legend.position =  'none', plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+# Redução do escopo para focar em 90% da amostra
+r <- receita$VR_RECEITA[receita$VR_RECEITA <= quantile(receita$VR_RECEITA, 0.90)]
+
+# grafico com r base
+hist(r,
+     xlab = "R$ doados",
+     ylab = "Frequência",
+     main = "Valores das doações recebidas - 90% da população")
+```
+```{r}
+# grafico com ggplot
+ggplot(data.frame(r), aes(x=r)) +
+  geom_histogram(color="darkblue", fill="lightblue", bins=15) +
+  theme_minimal() +
+  ggtitle('Tamanhos mais comuns de doações recebidas') + 
+  labs(x= 'R$', y = 'Frequência') +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+```
+
+
+```{r}
+g <- despesa$VR_PAGTO_DESPESA[despesa$VR_PAGTO_DESPESA <= quantile(despesa$VR_PAGTO_DESPESA, 0.90)]
+ggplot(data.frame(g), aes(x=g)) +
+  geom_histogram(color="darkred", fill="yellow", bins=15) +
+  theme_minimal() +
+  ggtitle('Tamanhos mais comuns de despesas') + 
+  labs(x= 'R$', y = 'Frequência') +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+bens_pivot <- bens %>% 
+                group_by(SQ_CANDIDATO) %>% 
+                summarise(Patrimonio = sum(VR_BEM_CANDIDATO) / 10 ** 6) %>% 
+                filter(Patrimonio <= quantile(Patrimonio, 0.95))
+
+ggplot(bens_pivot, aes(x=Patrimonio)) +
+  geom_histogram(color="darkgreen", fill="lightgreen", bins=15) +
+  theme_minimal() +
+  ggtitle('Patrimonio total mais comum') + 
+  labs(x= 'R$ (milhões)', y = 'Frequência') +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+```{r}
+bens_aux <-  bens %>% 
+                group_by(SQ_CANDIDATO) %>% 
+                summarise(Patrimonio = sum(VR_BEM_CANDIDATO))
+
+receita_aux <- receita %>% 
+                group_by(SQ_CANDIDATO) %>% 
+                summarise(Arrecadado = sum(VR_RECEITA))
+
+aux         <- status %>% 
+              select(SQ_CANDIDATO, DS_SIT_TOT_TURNO) %>% 
+              inner_join(bens_pivot) %>% 
+              inner_join(receita_aux)
+head(aux)
+```
+
+```{r}
+ggplot(aux, aes(x=Patrimonio ,y=Arrecadado / 10 ** 6, color =  DS_SIT_TOT_TURNO)) +
+  geom_point(size=0.5)  +
+  coord_cartesian(ylim=c(0,8))
+
+#  theme(legend.position =  'none')
+```
+
+
+
+
+### 4. Soluções usando algoritmos de Machine Learning
+
+```{r}
+# TODO
+```
+
