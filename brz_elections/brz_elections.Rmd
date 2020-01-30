@@ -1,0 +1,324 @@
+---
+title: "Análise das Eleições de 2018 no Brasil"
+output: html_notebook
+---
+
+## **Resumo**
+
+Vamos mostrar neste notebook uma abordagem sobre como baixar dados sobre as Eleições Gerais Brasileiras -- ocorridas no segundo semestre de 2018 -- e que elegeram deputados, senadores e o presidente da república. 
+Iremos fazer o passo a passo dos processos de:
+
+1. Obtenção dos dados a partir de fontes oficiais (Tribunal Superior Eleitoral - TSE)
+2. Limpeza dos dados e estruturação de um workflow de ETL.
+3. Análise exploratória dos dados (EDA)
+4. Exemplificação de aplicação de alguns algoritmos de Machine Learning
+
+Todas as etapas serão implementadas usando recursos da **linguagem R**.
+
+---
+### 1. **Obtenção dos dados**
+
+Principais URLs utilizadas para o download dos dados.
+
+* URL Principal
+    * http://www.tse.jus.br/eleicoes/estatisticas/repositorio-de-dados-eleitorais-1/repositorio-de-dados-eleitorais
+* Frame principal da URL acima
+    * http://www.tse.jus.br/hotsites/pesquisas-eleitorais/index.html
+* Tab da prestação de contas
+    * http://www.tse.jus.br/hotsites/pesquisas-eleitorais/prestacao_contas.html
+* Link com os dados de 2018
+    * http://www.tse.jus.br/hotsites/pesquisas-eleitorais/prestacao_contas_anos/2018.html
+
+
+#### 1.1 **Preparação do ambiente**
+```{r}
+# importação das libraries a serem utilizadas
+require(rvest)     # web scrapping
+require(plotly)    # data visualization
+require(ggplot2)   # data visualization
+require(lubridate) # padronização dos dados
+require(tidyverse) # data cleansing
+```
+
+```{r}
+# setup do working directory
+wd       <- '~/dev/r' # '/cloud/project'
+project  <- 'brz_elections'
+raw_data <- 'raw_data'
+
+# validação da existencia da pasta do projeto
+dest_path <- file.path(wd, project)
+if (!dir.exists(dest_path)) {
+  dir.create(dest_path)
+  print(paste("Folder", dest_path , "created at", wd))
+} else {
+  print(paste("Folder", dest_path , "already exists"))
+}
+
+
+# validacao da existencia da pasta do download de raw data
+dest_path <- file.path(dest_path, raw_data)
+if (!dir.exists(dest_path)) {
+  dir.create(dest_path)
+  print(paste("Folder ", dest_path , "created sucessfully "))
+} else {
+  print(paste("Folder ", dest_path , "already exists"))
+}
+
+
+# migracao do working directory para a pasta do projeto
+setwd(dest_path)
+```
+
+#### 1.2 **Dowload dos Arquivos**
+```{r}
+# pagina principal que servira de base para a extracao dos arquivos zip
+target_url <- "http://www.tse.jus.br/hotsites/pesquisas-eleitorais/prestacao_contas_anos/2018.html"
+
+# extração do html puro
+html       <-  read_html(target_url)
+
+# filtro com css selector das tags que contem as urls
+nodes      <-  html_nodes(html, 'div p a')
+
+# extração das urls com zip dos dados
+zip_url    <-  html_attr(nodes, 'href')
+```
+
+
+```{r}
+# download zip files para a pasta de destino
+# interessante notar que não é preciso fazer um for. 
+# o R tentara fazer os 3 downloads em paralelo
+# *** WARNING ***
+# um dos arquivos tem mais de 200 MB
+download.file(url = zip_url, 
+              destfile = file.path(dest_path, basename(zip_url)),
+              mode = 'wb')
+```
+
+#### 1.3 **Unzip dos arquivos**
+
+```{r}
+# unzip dos arquivos baixados
+for (f in file.path(dest_path, basename(zip_url))) {
+  print(f)
+  unzip(f, exdir = dest_path)
+}
+```
+
+---
+
+### 2. **Limpeza dos dados**
+```{r}
+# dos diversos arquivos estraídos vamos utilizar apenas aqueles com dados de todo o brasil
+receita <-  read.csv('./raw_data/receitas_candidatos_2018_BRASIL.csv',
+                    sep = ';', 
+                    dec = ',',
+                    encoding = 'latin1')
+
+# remoçao de colunas desnecessarias à análise
+# temos um total de 57 colunas !
+receita$SG_UF                       <- NULL
+receita$NR_CPF_VICE_CANDIDATO       <- NULL
+receita$CD_ELEICAO                  <- NULL
+receita$DS_ELEICAO                  <- NULL
+receita$CD_TIPO_ELEICAO             <- NULL
+receita$NM_TIPO_ELEICAO             <- NULL
+receita$ANO_ELEICAO                 <- NULL
+receita$DT_GERACAO                  <- NULL
+receita$HH_GERACAO                  <- NULL
+receita$TP_PRESTACAO_CONTAS         <- NULL
+receita$DS_CARGO_CANDIDATO_DOADOR   <- NULL
+receita$CD_ESFERA_PARTIDARIA_DOADOR <- NULL
+receita$DS_ESFERA_PARTIDARIA_DOADOR <- NULL
+receita$NM_DOADOR                   <- NULL
+receita$CD_MUNICIPIO_DOADOR         <- NULL
+receita$NM_MUNICIPIO_DOADOR         <- NULL        
+receita$SQ_CANDIDATO_DOADOR         <- NULL
+receita$NR_CANDIDATO_DOADOR         <- NULL
+receita$NR_DOCUMENTO_DOACAO         <- NULL
+receita$SQ_PRESTADOR_CONTAS         <- NULL
+receita$SQ_RECEITA                  <- NULL
+receita$CD_CARGO_CANDIDATO_DOADOR   <- NULL
+receita$NR_CPF_CANDIDATO            <- NULL
+receita$NR_CPF_CNPJ_DOADOR          <- NULL
+receita$NM_PARTIDO                  <- NULL
+receita$NR_PARTIDO_DOADOR           <- NULL
+receita$NM_PARTIDO_DOADOR           <- NULL
+receita$NR_PARTIDO                  <- NULL
+receita$CD_FONTE_RECEITA            <- NULL
+receita$CD_ORIGEM_RECEITA           <- NULL
+receita$CD_NATUREZA_RECEITA         <- NULL
+receita$CD_ESPECIE_RECEITA          <- NULL
+receita$CD_CNAE_DOADOR              <- NULL
+receita$SG_PARTIDO_DOADOR           <- NULL
+
+# formatar datas com lubridate
+receita$DT_ELEICAO            <- dmy(receita$DT_ELEICAO)
+receita$DT_PRESTACAO_CONTAS   <- dmy(receita$DT_PRESTACAO_CONTAS)
+receita$DT_RECEITA            <- dmy(receita$DT_RECEITA)
+
+# exibir 
+head(receita)
+
+# criar novo csv com o frame limpo
+write.csv(receita, './raw_data/receita_cand_BRASIL_2018.csv')
+```
+
+```{r}
+# limpeza do fram de despesas dos candidatos
+despesa <-  read.csv('./raw_data/despesas_pagas_candidatos_2018_BRASIL.csv',
+                    sep = ';', 
+                    dec = ',',
+                    encoding = 'latin1')
+
+head(despesa)
+
+# data cleansing usando dplyr
+rm_columns <- c('NR_CPF_VICE_CANDIDATO','SG_UF','CD_ELEICAO','DS_ELEICAO',
+                'CD_TIPO_ELEICAO','NM_TIPO_ELEICAO','ANO_ELEICAO','DT_GERACAO',
+                'HH_GERACAO','TP_PRESTACAO_CONTAS','SQ_PRESTADOR_CONTAS','NR_CPF_CANDIDATO',
+                'NM_PARTIDO','NR_PARTIDO','DS_CNAE_FORNECEDOR','CD_TIPO_FORNECEDOR','CD_CNAE_FORNECEDOR',
+                'DS_ESFERA_PART_FORNECEDOR','CD_ESFERA_PART_FORNECEDOR','SG_UF_FORNECEDOR',
+                'CD_MUNICIPIO_FORNECEDOR','NM_MUNICIPIO_FORNECEDOR','SQ_CANDIDATO_FORNECEDOR',
+                'NR_CANDIDATO_FORNECEDOR','CD_CARGO_FORNECEDOR','DS_ORIGEM_DESPESA',
+                'CD_ORIGEM_DESPESA','SQ_PARCELAMENTO_DESPESA')
+
+despesa[, rm_columns] <-NULL
+
+# View(head(despesa))
+write.csv(despesa, './raw_data/despesa_pagas_cand_BRASIL_2018.csv')
+```
+
+---
+
+### 3. EDA
+```{r}
+# analise basica dos frames extraidos
+receita <-  read.table(unz('./raw_data/receita_br.zip', 'receita_cand_BRASIL_2018.csv'), 
+                       header=T, 
+                       sep=",", 
+                       colClasses = c(X="NULL")) %>% 
+            filter(SG_UE != 'BR')
+
+despesa <-  read.table(unz('./raw_data/despesa_paga_br.zip','despesa_pagas_cand_BRASIL_2018.csv'),
+                       header=T, 
+                       sep=",", 
+                       colClasses = c(X="NULL"))
+
+despesa_con <-  read.table(unz('./raw_data/despesa_contratada_br.zip','despesa_contratada_cand_BRASIL_2018.csv'),
+                       header=T, 
+                       sep=",", 
+                       colClasses = c(X="NULL")) %>% 
+                filter(SG_UE != 'BR')
+```
+
+```{r}
+# grafico das despesas
+despesa %>% group_by(DS_DESPESA) %>% 
+            summarise(TOTAL = sum(VR_PAGTO_DESPESA)) %>%  # AGRUPAR DESPESAS PELA DESCRICAO E SOMAR TOTAIS 
+            arrange(desc(TOTAL)) %>%                      # ORGANIZAR EM ORDEM DECRESCENTE
+            head(10) %>%                                  # TRAZER OS PRIMEIROS 10 RESULTADOS
+            ggplot(aes(x=reorder(DS_DESPESA, --TOTAL), 
+                       y=TOTAL / (10**6))) +              # CRIAR UM PLOT REOGARNIZANDO O EIXO X E DIVIDINDO O Y
+            geom_bar(stat = 'identity', 
+                     fill = 'steelblue') +                # CUSTOMIZA GRAFICO DE BARRA E COR
+            theme_minimal() +                             # APLICA TEMA MINIMO, COM FUNDO BRANCO
+            coord_flip() +                                # TRANSFORMA O GRAFICO DE HORIZONTAL PARA VERTIICAL
+            ggtitle('Principais gastos dos candidatos na Eleição de 2018 - Top 10') +
+            labs(x='Destino da despesa', y='Gastos em milhões de R$')
+```
+
+```{r}
+# grafico das despesas contratadas
+despesa_con %>% group_by(DS_ORIGEM_DESPESA) %>% 
+                summarise(TOTAL = sum(VR_DESPESA_CONTRATADA)) %>%  # AGRUPAR DESPESAS PELA DESCRICAO E SOMAR TOTAIS 
+                arrange(desc(TOTAL)) %>%                      # ORGANIZAR EM ORDEM DECRESCENTE
+                head(10) %>%                                  # TRAZER OS PRIMEIROS 10 RESULTADOS
+                ggplot(aes(x=reorder(DS_ORIGEM_DESPESA, --TOTAL), 
+                           y=TOTAL / (10**6))) +              # CRIAR UM PLOT REOGARNIZANDO O EIXO X E DIVIDINDO O Y
+                geom_bar(stat = 'identity', 
+                         fill = 'darkred') +                # CUSTOMIZA GRAFICO DE BARRA E COR
+                theme_minimal() +                             # APLICA TEMA MINIMO, COM FUNDO BRANCO
+                coord_flip() +                                # TRANSFORMA O GRAFICO DE HORIZONTAL PARA VERTIICAL
+                ggtitle('Principais gastos contratados na Eleição de 2018 - Top 10') +
+                labs(x='Destino da despesa', y='Contratos em milhões de R$')
+```
+
+
+```{r}
+receita %>% group_by(DS_ORIGEM_RECEITA) %>% 
+            summarise(TOTAL = sum(VR_RECEITA)) %>% 
+            arrange(desc(TOTAL)) %>% 
+            head(5) %>% 
+            ggplot(aes(x=reorder(DS_ORIGEM_RECEITA, --TOTAL), 
+                       y=TOTAL / 10 ** 6)) +
+            geom_bar(stat = 'identity', fill ='darkgreen') +
+            coord_flip() +
+            theme_minimal() +
+            ggtitle('Principais fontes de receita na Eleição de 2018 - Top 5') +
+            labs(x='Origem da receita', y='Arrecadação em milhões de R$')
+  
+```
+
+```{r}
+# VALIDACAO DOS TOTAIS
+tot_desp_cont <- sum(despesa_con$VR_DESPESA_CONTRATADA)
+tot_desp      <- sum(despesa$VR_PAGTO_DESPESA) 
+tot_receita   <- sum(receita$VR_RECEITA)
+
+aux <- data.frame(X = c('TOTAL_CONTRATADO', 'TOTAL_PAGO', 'TOTAL_ARRECADADO'),
+                  Y = c(tot_desp_cont, tot_desp, tot_receita))
+                  
+aux %>% ggplot(aes(x=X, y=Y / 10 ** 6)) +
+        geom_bar(stat = 'identity')
+
+```
+
+```{r}
+# Redução do escopo para focar em 90% da amostra
+hist(receita$VR_RECEITA[receita$VR_RECEITA <= quantile(receita$VR_RECEITA, 0.90)], 
+     xlab = "R$ doados",
+     ylab = "Frequência",
+     main = "Valores das doações recebidas - 90% da população")
+```
+
+
+```{r}
+# Redução do escopo para focar em 50% da amostra
+hist(receita$VR_RECEITA[receita$VR_RECEITA <= quantile(receita$VR_RECEITA, 0.50)], 
+     xlab = "R$ doados",
+     ylab = "Frequência",
+     main = "Valores das doações recebidas - 50% da população")
+```
+
+
+```{r}
+# Redução do escopo para 25% da amostra
+hist(receita$VR_RECEITA[receita$VR_RECEITA <= quantile(receita$VR_RECEITA, 0.25)], 
+     xlab = "R$ doados",
+     ylab = "Frequência",
+     main = "Valores das doações recebidas - 25% da população")
+```
+
+
+```{r}
+brz <- receita[receita$SG_UE != 'BR',]
+brc <- group_by(brz, SG_UE, SQ_CANDIDATO, NM_CANDIDATO) %>% summarise(RECEITA = sum(VR_RECEITA))
+brc
+```
+
+
+
+
+
+
+### 4. Soluções usando algoritmos de Machine Learning
+
+```{r}
+# TODO
+```
+
+
+

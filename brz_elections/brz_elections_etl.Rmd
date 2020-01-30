@@ -51,7 +51,7 @@ raw_data <- 'raw_data'
 # validação da existencia da pasta do projeto
 dest_path <- file.path(wd, project)
 if (!dir.exists(dest_path)) {
-  dir.create(dest_path)
+  dir.create(dest_path)   # create path case it does not exists
   print(paste("Folder", dest_path , "created at", wd))
 } else {
   print(paste("Folder", dest_path , "already exists"))
